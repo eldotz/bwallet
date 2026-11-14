@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 
 const entryTypeLabels = { investment: 'Money invested', spend: 'Business expense', loan: 'Loan', withdrawal: 'Partner withdrawal', loan_withdrawal: 'Loan withdrawal', advance_spend: 'Advance spent', partner_repayment: 'Partner repayment', repayment: 'Loan repayment', return: 'Money returned' };
+const displayRole = (role) => role === 'owner' || role === 'partner' ? 'Partner' : role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Partner';
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: Home },
@@ -83,7 +84,7 @@ export default function HomePage() {
     if (!authUser) return;
     Promise.all([fetch('/api/transactions').then((response) => response.json()), fetch('/api/workspace').then((response) => response.json())]).then(([transactionResult, workspaceResult]) => {
       if (Array.isArray(transactionResult.transactions)) setTransactions(transactionResult.transactions.map((item) => ({ id: item.id, userId: item.userId, name: item.description, note: `${item.businessName || 'Partner wallet'} · ${item.source}${item.takenByName ? ` · taken by ${item.takenByName}` : ''}`, category: item.category, type: item.type, entryType: item.entryType, source: item.source, allocationType: item.allocationType || 'common', allocationUserId: item.allocationUserId || '', allocationUserName: item.allocationUserName, businessId: item.businessId, businessName: item.businessName, takenById: item.takenById, takenByName: item.takenByName, amount: item.amount / 100, date: item.occurredOn, color: item.entryType === 'loan' ? 'purple' : item.entryType === 'investment' ? 'blue' : item.entryType === 'return' ? 'green' : 'orange', letter: item.description.slice(0, 1).toUpperCase() })));
-      if (Array.isArray(workspaceResult.members)) setPeople(workspaceResult.members.map((member, index) => ({ id: member.id, name: member.name, initials: member.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(), role: member.role === 'owner' ? 'Owner' : 'Partner', color: index % 2 ? 'coral' : 'blue', balance: member.balance / 100, detail: member.balance < 0 ? 'Taken out' : member.balance > 0 ? 'Added to wallet' : 'No money added or taken yet' })));
+      if (Array.isArray(workspaceResult.members)) setPeople(workspaceResult.members.map((member, index) => ({ id: member.id, name: member.name, initials: member.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(), role: displayRole(member.role), color: index % 2 ? 'coral' : 'blue', balance: member.balance / 100, detail: member.balance < 0 ? 'Taken out' : member.balance > 0 ? 'Added to wallet' : 'No money added or taken yet' })));
       if (Array.isArray(workspaceResult.businesses)) {
         setBusinesses(workspaceResult.businesses.filter((business) => !business.archivedAt));
         setArchivedBusinesses(workspaceResult.businesses.filter((business) => business.archivedAt));
@@ -187,7 +188,7 @@ export default function HomePage() {
         <nav>{navItems.map(({ id, label, icon: Icon }) => <button key={id} className={active === id ? 'active' : ''} onClick={() => selectNav(id)}><Icon size={19} /><span>{label}</span></button>)}</nav>
         <div className="sidebar-bottom">
           <button onClick={() => setModal('invite')}><UserPlus size={18} /><span>Invite a partner</span></button>
-          <div className="sidebar-user"><Avatar initials={authUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()} /><div><b>{authUser.name}</b><span>Owner</span></div><ChevronRight size={16} /></div>
+          <div className="sidebar-user"><Avatar initials={authUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()} /><div><b>{authUser.name}</b><span>{displayRole(authUser.role)}</span></div><ChevronRight size={16} /></div>
         </div>
       </aside>
       {menuOpen && <button className="scrim" aria-label="Close menu" onClick={() => setMenuOpen(false)} />}
@@ -411,7 +412,7 @@ function InviteModal({ user, onClose, notify }) {
 function ProfileModal({ user, onClose, notify, openAuth, onSignedOut }) {
   const logout = async () => { await fetch('/api/auth', { method: 'DELETE' }); onClose(); onSignedOut(); };
   const initials = user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
-  return <ModalShell title="Your account" subtitle={`${user.name} · ${user.role || 'Owner'}`} onClose={onClose}><div className="profile-card"><Avatar initials={initials} color="blue" /><div><b>{user.name}</b><span>{user.email}</span></div><span className="verified">Verified</span></div><button className="account-action" onClick={openAuth}><Users size={17} /> Switch or join partnership hub <ChevronRight size={16} /></button><button className="logout-button" onClick={logout}><LogOut size={16} /> Sign out</button></ModalShell>;
+  return <ModalShell title="Your account" subtitle={`${user.name} · ${displayRole(user.role)}`} onClose={onClose}><div className="profile-card"><Avatar initials={initials} color="blue" /><div><b>{user.name}</b><span>{user.email}</span></div><span className="verified">Verified</span></div><button className="account-action" onClick={openAuth}><Users size={17} /> Switch or join partnership hub <ChevronRight size={16} /></button><button className="logout-button" onClick={logout}><LogOut size={16} /> Sign out</button></ModalShell>;
 }
 
 function AuthScreen({ onAuthenticated }) {
@@ -445,20 +446,26 @@ function AuthFields({ onAuthenticated, notify = () => {}, close = () => {}, init
   const [mode, setMode] = useState(initialMode);
   const [form, setForm] = useState({ name: '', email: '', password: '', organization: '', inviteCode: '' });
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const submit = async (event) => {
     event.preventDefault();
     setError('');
+    setNotice('');
     try {
       const response = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: mode, ...form }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
+      if (result.requiresEmailConfirmation) {
+        setNotice(result.message);
+        return;
+      }
       const session = await fetch('/api/auth', { cache: 'no-store' }).then((sessionResponse) => sessionResponse.json());
       onAuthenticated(session.user);
       close();
       notify(mode === 'login' ? 'Signed in securely' : mode === 'join' ? 'Joined partnership hub' : 'Partnership hub created');
     } catch (requestError) { setError(requestError.message || 'Could not sign in'); }
   };
-  return <><div className="auth-tabs"><button type="button" className={mode === 'login' ? 'selected' : ''} onClick={() => setMode('login')}>Sign in</button><button type="button" className={mode === 'signup' ? 'selected' : ''} onClick={() => setMode('signup')}>New partnership hub</button><button type="button" className={mode === 'join' ? 'selected' : ''} onClick={() => setMode('join')}>Join</button></div><form onSubmit={submit}>{mode !== 'login' && <label>Your name<input required placeholder="Jordan Davis" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>}{mode === 'signup' && <label>Partnership hub name<input required placeholder="Northstar Studio" value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} /></label>}{mode === 'join' && <label>Invite code<input required placeholder="NS-7K4P-21" value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} /></label>}<label>Email<input required type="email" placeholder="you@business.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label><label>Password<input required type="password" minLength="8" placeholder="8+ characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>{error && <p className="form-error">{error}</p>}<button className="primary-button modal-submit" type="submit">{mode === 'login' ? 'Sign in' : mode === 'join' ? 'Join partnership hub' : 'Create partnership hub'}</button></form><p className="modal-footnote"><ShieldCheck size={14} /> Encrypted sign-in for every partner.</p></>;
+  return <><div className="auth-tabs"><button type="button" className={mode === 'login' ? 'selected' : ''} onClick={() => setMode('login')}>Sign in</button><button type="button" className={mode === 'signup' ? 'selected' : ''} onClick={() => setMode('signup')}>New partnership hub</button><button type="button" className={mode === 'join' ? 'selected' : ''} onClick={() => setMode('join')}>Join</button></div><form onSubmit={submit}>{mode !== 'login' && <label>Your name<input required placeholder="Jordan Davis" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>}{mode === 'signup' && <label>Partnership hub name<input required placeholder="Northstar Studio" value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} /></label>}{mode === 'join' && <label>Invite code<input required placeholder="NS-7K4P-21" value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} /></label>}<label>Email<input required type="email" inputMode="email" autoComplete="email" placeholder="you@business.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label><label>Password<input required type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength="8" placeholder="8+ characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>{error && <p className="form-error">{error}</p>}{notice && <p className="form-success">{notice}</p>}<button className="primary-button modal-submit" type="submit">{mode === 'login' ? 'Sign in' : mode === 'join' ? 'Join partnership hub' : 'Create partnership hub'}</button></form><p className="modal-footnote"><ShieldCheck size={14} /> Encrypted sign-in for every partner.</p></>;
 }
 
 function AuthModal({ onClose, notify, onAuthenticated }) {

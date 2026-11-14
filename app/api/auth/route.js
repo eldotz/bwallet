@@ -36,9 +36,9 @@ export async function POST(request) {
   const action = body.action || 'login';
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   const password = typeof body.password === 'string' ? body.password : '';
-  if (!['login', 'signup', 'join'].includes(action) || !emailPattern.test(email) || password.length < 8 || password.length > 128) {
-    return json({ error: 'Use a valid email and password of 8 to 128 characters.' }, 400);
-  }
+  if (!['login', 'signup', 'join'].includes(action)) return json({ error: 'Unsupported authentication action.' }, 400);
+  if (!emailPattern.test(email)) return json({ error: 'Enter a valid email address.' }, 400);
+  if (password.length < 8 || password.length > 128) return json({ error: 'Password must be between 8 and 128 characters.' }, 400);
 
   const profileName = typeof body.name === 'string' ? body.name.trim() : '';
   const organizationName = typeof body.organization === 'string' ? body.organization.trim() : '';
@@ -59,7 +59,6 @@ export async function POST(request) {
       if (organizationError) throw organizationError;
       createdOrganizationId = organization.id;
       organizationId = organization.id;
-      role = 'owner';
       authResult = await supabase.auth.signUp({ email, password });
     } else if (action === 'join') {
       if (!profileName || !inviteCode) return json({ error: 'Name and invite code are required.' }, 400);
@@ -75,19 +74,26 @@ export async function POST(request) {
       await removeOrganization(createdOrganizationId);
       const message = String(authResult.error.message).toLowerCase();
       if (message.includes('already registered') || message.includes('duplicate')) return json({ error: 'That email is already registered.' }, 409);
+      if (message.includes('email') && (message.includes('invalid') || message.includes('valid'))) return json({ error: 'Enter a valid email address.' }, 400);
       return json({ error: action === 'login' ? 'Invalid email or password.' : 'Could not create account.' }, 401);
     }
 
     const user = authResult.data.user;
-    if (!user || !authResult.data.session) {
+    if (!user) {
       await removeOrganization(createdOrganizationId);
-      return json({ error: 'Email confirmation is required before signing in.' }, 401);
+      return json({ error: 'Could not create account.' }, 500);
+    }
+    if (!authResult.data.session && action === 'login') return json({ error: 'Check your email to confirm your account before signing in.' }, 401);
+    if (!authResult.data.session && (!user.identities || user.identities.length === 0)) {
+      await removeOrganization(createdOrganizationId);
+      return json({ error: 'That email is already registered.' }, 409);
     }
 
     if (organizationId) {
       createdAuthUserId = user.id;
       await createProfile(user, profileName, organizationId, role);
     }
+    if (!authResult.data.session) return json({ requiresEmailConfirmation: true, message: 'Check your email to confirm your account, then sign in.' }, 202);
     await setSupabaseSession(authResult.data.session);
     const profile = await currentProfile();
     if (!profile) throw new Error('Profile setup failed.');
