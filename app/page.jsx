@@ -16,14 +16,12 @@ import {
   History,
   Home,
   Landmark,
-  LayoutGrid,
   LogOut,
   Menu,
   Plus,
   Pencil,
   Receipt,
   Search,
-  Settings,
   Trash2,
   ShieldCheck,
   Sparkles,
@@ -187,7 +185,6 @@ export default function HomePage() {
         <nav>{navItems.map(({ id, label, icon: Icon }) => <button key={id} className={active === id ? 'active' : ''} onClick={() => selectNav(id)}><Icon size={19} /><span>{label}</span></button>)}</nav>
         <div className="sidebar-bottom">
           <button onClick={() => setModal('invite')}><UserPlus size={18} /><span>Invite a partner</span></button>
-          <button onClick={() => notify('Settings are coming soon')}><Settings size={18} /><span>Settings</span></button>
           <div className="sidebar-user"><Avatar initials={authUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()} /><div><b>{authUser.name}</b><span>Owner</span></div><ChevronRight size={16} /></div>
         </div>
       </aside>
@@ -195,10 +192,10 @@ export default function HomePage() {
 
       <main className="main-content">
         <header className="topbar">
-          <button className="mobile-menu" onClick={() => setMenuOpen(true)}><Menu size={22} /></button>
+          <button className="mobile-menu" aria-label="Open navigation" onClick={() => setMenuOpen(true)}><Menu size={22} /></button>
           <div className="mobile-logo"><Logo /></div>
           <div className="breadcrumbs"><span>{authUser.organization}</span><ChevronRight size={14} /><b>{navItems.find((item) => item.id === active)?.label}</b></div>
-          <div className="top-actions"><button className="icon-button search-button" onClick={() => notify('Search is ready for your transactions')}><Search size={19} /></button><button className="icon-button notification" onClick={() => notify('You are all caught up')}><Bell size={19} /><i /></button><button className="top-avatar" onClick={() => setModal('profile')}>{authUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</button></div>
+          <div className="top-actions"><button className="icon-button search-button" aria-label="Search transactions" onClick={() => { setActive('transactions'); notify('Search your transactions below'); }}><Search size={19} /></button><button className="icon-button notification" aria-label="Notifications" onClick={() => notify('You are all caught up')}><Bell size={19} /><i /></button><button className="top-avatar" aria-label="Open account menu" onClick={() => setModal('profile')}>{authUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</button></div>
         </header>
 
         <div className="page-wrap">
@@ -209,7 +206,7 @@ export default function HomePage() {
           {active === 'transactions' && <Transactions transactions={transactions} openTransaction={() => { setEditingTransaction(null); setModal('transaction'); }} onEdit={editTransaction} onHistory={viewHistory} />}
           {active === 'people' && <People people={people} transactions={transactions} openInvite={() => setModal('invite')} onViewLedger={(person) => { setLedgerPartner(person); setModal('ledger'); }} />}
           {active === 'loans' && <Loans transactions={transactions} notify={notify} openLoan={openLoan} />}
-          {active === 'reports' && <Reports totals={totals} />}
+          {active === 'reports' && <Reports totals={totals} transactions={transactions} />}
         </div>
       </main>
 
@@ -224,7 +221,7 @@ export default function HomePage() {
       {modal === 'invite' && <InviteModal user={authUser} onClose={() => setModal(null)} notify={notify} />}
       {modal === 'profile' && <ProfileModal user={authUser} onClose={() => setModal(null)} notify={notify} openAuth={() => setModal('auth')} onSignedOut={() => setAuthUser(null)} />} 
       {modal === 'auth' && <AuthModal onClose={() => setModal(null)} notify={notify} onAuthenticated={setAuthUser} />}
-      {toast && <div className="toast"><ShieldCheck size={17} />{toast}</div>}
+      {toast && <div className="toast" role="status" aria-live="polite"><ShieldCheck size={17} />{toast}</div>}
     </div>
   );
 }
@@ -308,7 +305,14 @@ function TransactionRow({ item }) {
 }
 
 function Transactions({ transactions, openTransaction, onEdit, onHistory }) {
-  return <section className="panel full-panel"><div className="panel-heading transactions-heading"><div><h2>All transactions</h2><p>Every movement in your workspace</p></div><div className="heading-actions"><button className="filter-button"><Search size={16} /> Search</button><button className="filter-button"><LayoutGrid size={16} /> Filter</button><button className="primary-button" onClick={openTransaction}><Plus size={17} /> Add entry</button></div></div>{transactions.length ? <div className="transaction-table"><div className="table-header"><span>Entry</span><span>Category</span><span>Date</span><span>Amount</span><span /></div>{transactions.map((item) => <div className="table-row" key={item.id}><div className="table-name"><span className={`transaction-icon ${item.color}`}>{item.letter}</span><div><b>{item.name}</b><small>{item.businessName || 'Partner wallet'} · {item.entryType}</small></div></div><span className="category-pill">{item.category}</span><span className="date-text">{item.date}</span><strong className={item.amount < 0 ? '' : 'income'}>{item.amount < 0 ? '-' : '+'}{money(Math.abs(item.amount))}</strong><div className="table-actions"><button aria-label="Edit transaction" onClick={() => onEdit(item)}><Pencil size={14} /></button><button aria-label="View transaction history" onClick={() => onHistory(item)}><History size={14} /></button></div></div>)}</div> : <EmptyState icon={Receipt} title="No wallet entries yet" copy="Invest in a business or record your first spend." action={<button className="text-button" onClick={openTransaction}>Add wallet entry <Plus size={14} /></button>} />}</section>;
+  const [query, setQuery] = useState('');
+  const [entryFilter, setEntryFilter] = useState('all');
+  const filtered = transactions.filter((item) => {
+    const matchesType = entryFilter === 'all' || item.entryType === entryFilter;
+    const searchText = `${item.name} ${item.category} ${item.businessName || ''} ${item.entryType}`.toLowerCase();
+    return matchesType && (!query.trim() || searchText.includes(query.trim().toLowerCase()));
+  });
+  return <section className="panel full-panel"><div className="panel-heading transactions-heading"><div><h2>All transactions</h2><p>{transactions.length} {transactions.length === 1 ? 'movement' : 'movements'} in your workspace</p></div><div className="heading-actions"><label className="filter-button transaction-search"><Search size={15} /><input aria-label="Search transactions" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label="Filter transactions" className="filter-button" value={entryFilter} onChange={(event) => setEntryFilter(event.target.value)}><option value="all">All types</option>{['investment', 'spend', 'loan', 'withdrawal', 'return', 'repayment'].map((type) => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}</select><button className="primary-button" onClick={openTransaction}><Plus size={17} /> Add entry</button></div></div>{transactions.length ? filtered.length ? <div className="transaction-table"><div className="table-header"><span>Entry</span><span>Category</span><span>Date</span><span>Amount</span><span /></div>{filtered.map((item) => <div className="table-row" key={item.id}><div className="table-name"><span className={`transaction-icon ${item.color}`}>{item.letter}</span><div><b>{item.name}</b><small>{item.businessName || 'Partner wallet'} · {item.entryType}</small></div></div><span className="category-pill">{item.category}</span><span className="date-text">{item.date}</span><strong className={item.amount < 0 ? '' : 'income'}>{item.amount < 0 ? '-' : '+'}{money(Math.abs(item.amount))}</strong><div className="table-actions"><button aria-label="Edit transaction" onClick={() => onEdit(item)}><Pencil size={14} /></button><button aria-label="View transaction history" onClick={() => onHistory(item)}><History size={14} /></button></div></div>)}</div> : <EmptyState icon={Search} title="No matching movements" copy="Try another search or transaction type." /> : <EmptyState icon={Receipt} title="No wallet entries yet" copy="Invest in a business or record your first spend." action={<button className="text-button" onClick={openTransaction}>Add wallet entry <Plus size={14} /></button>} />}</section>;
 }
 
 function People({ people, openInvite, onViewLedger }) {
@@ -323,9 +327,20 @@ function Loans({ transactions, notify, openLoan }) {
 
 function LoanRow({ name, type, balance, paid, color }) { return <div className="loan-row"><span className={`loan-icon ${color}`}><Landmark size={19} /></span><div className="loan-info"><b>{name}</b><span>{type}</span><small>{paid}</small></div><div className="loan-amount"><strong>{balance}</strong></div></div>; }
 
-function Reports({ totals }) {
+function Reports({ totals, transactions }) {
   const margin = totals.returns ? ((totals.profit / totals.returns) * 100).toFixed(1) : '0.0';
-  return <><section className="report-hero"><div><p className="eyebrow">Current workspace report</p><h2>Your business at a glance.</h2><p>Simple numbers for better partner decisions.</p></div><button className="outline-button"><ArrowDownLeft size={16} /> Export report</button></section><section className="report-grid"><div className="report-stat"><span>Returns</span><strong>{money(totals.returns)}</strong><small>Money returned from businesses</small></div><div className="report-stat"><span>Business spend</span><strong>{money(totals.spent)}</strong><small>Money spent across businesses</small></div><div className="report-stat"><span>Profit margin</span><strong>{margin}%</strong><small>Profit after costs</small></div><div className="report-stat"><span>Cash position</span><strong>{money(totals.cash)}</strong><small>After recorded movements</small></div></section><section className="panel report-note"><div className="getting-icon"><BarChart3 size={19} /></div><div><h2>Profit vs. loan money</h2><p>Loan entries stay separate from revenue, so your profit report reflects money the business actually earned.</p></div><ChevronRight size={18} /></section></>;
+  const exportReport = () => {
+    const escape = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const rows = [['Date', 'Description', 'Business', 'Type', 'Category', 'Amount'], ...transactions.map((item) => [item.date, item.name, item.businessName || 'Partner wallet', item.entryType, item.category, item.amount.toFixed(2)])];
+    const csv = rows.map((row) => row.map(escape).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `bwallet-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  return <><section className="report-hero"><div><p className="eyebrow">Current workspace report</p><h2>Your business at a glance.</h2><p>Simple numbers for better partner decisions.</p></div><button className="outline-button" onClick={exportReport}><ArrowDownLeft size={16} /> Export CSV</button></section><section className="report-grid"><div className="report-stat"><span>Returns</span><strong>{money(totals.returns)}</strong><small>Money returned from businesses</small></div><div className="report-stat"><span>Business spend</span><strong>{money(totals.spent)}</strong><small>Money spent across businesses</small></div><div className="report-stat"><span>Profit margin</span><strong>{margin}%</strong><small>Profit after costs</small></div><div className="report-stat"><span>Cash position</span><strong>{money(totals.cash)}</strong><small>After recorded movements</small></div></section><section className="panel report-note"><div className="getting-icon"><BarChart3 size={19} /></div><div><h2>Profit vs. loan money</h2><p>Loan entries stay separate from revenue, so your profit report reflects money the business actually earned.</p></div><ChevronRight size={18} /></section></>;
 }
 
 function ModalShell({ children, title, subtitle, onClose, wide = false }) { return <div className="modal-backdrop" onMouseDown={onClose}><div className={`modal ${wide ? 'wide' : ''}`} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="modal-close" onClick={onClose}><X size={19} /></button></div>{children}</div></div>; }
@@ -380,13 +395,13 @@ function InviteModal({ user, onClose, notify }) {
       notify('Could not copy invite code');
     }
   };
-  return <ModalShell title="Invite a partner" subtitle="Give your team secure access to this workspace." onClose={onClose}><div className="invite-code"><span>Workspace invite code</span><strong>{user.inviteCode || 'Unavailable'}</strong><button type="button" onClick={copyCode}><Copy size={15} /> Copy code</button></div><label>Partner email<input type="email" placeholder="partner@business.com" /></label><button className="primary-button modal-submit disabled-button" aria-disabled="true" onClick={() => notify('Coming soon')}><UserPlus size={17} /> Send invitation</button><p className="modal-footnote"><ShieldCheck size={14} /> Only invited members can see your business data.</p></ModalShell>;
+  return <ModalShell title="Invite a partner" subtitle="Share this code with a partner so they can join the workspace." onClose={onClose}><div className="invite-code"><span>Workspace invite code</span><strong>{user.inviteCode || 'Unavailable'}</strong><button type="button" onClick={copyCode}><Copy size={15} /> Copy code</button></div><p className="form-hint"><ShieldCheck size={14} /><span>Partners can choose <b>Join</b> on the sign-in screen and enter this code. Only workspace members can access your business data.</span></p></ModalShell>;
 }
 
 function ProfileModal({ user, onClose, notify, openAuth, onSignedOut }) {
   const logout = async () => { await fetch('/api/auth', { method: 'DELETE' }); onClose(); onSignedOut(); };
   const initials = user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
-  return <ModalShell title="Your account" subtitle={`${user.name} · ${user.role || 'Owner'}`} onClose={onClose}><div className="profile-card"><Avatar initials={initials} color="blue" /><div><b>{user.name}</b><span>{user.email}</span></div><span className="verified">Verified</span></div><button className="account-action" onClick={() => notify('Account settings are coming soon')}><Settings size={17} /> Account settings <ChevronRight size={16} /></button><button className="account-action" onClick={() => notify('You are signed in securely')}><ShieldCheck size={17} /> Security & sign-in <ChevronRight size={16} /></button><button className="account-action" onClick={openAuth}><Users size={17} /> Switch or join workspace <ChevronRight size={16} /></button><button className="logout-button" onClick={logout}><LogOut size={16} /> Sign out</button></ModalShell>;
+  return <ModalShell title="Your account" subtitle={`${user.name} · ${user.role || 'Owner'}`} onClose={onClose}><div className="profile-card"><Avatar initials={initials} color="blue" /><div><b>{user.name}</b><span>{user.email}</span></div><span className="verified">Verified</span></div><button className="account-action" onClick={openAuth}><Users size={17} /> Switch or join workspace <ChevronRight size={16} /></button><button className="logout-button" onClick={logout}><LogOut size={16} /> Sign out</button></ModalShell>;
 }
 
 function AuthScreen({ onAuthenticated }) {
