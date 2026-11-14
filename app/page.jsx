@@ -409,7 +409,8 @@ function AuthScreen({ onAuthenticated }) {
   const openAccess = (mode) => (event) => {
     event.preventDefault();
     setAccessMode(mode);
-    document.getElementById('access')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const access = document.getElementById('access');
+    if (access) window.scrollTo({ top: Math.max(0, access.getBoundingClientRect().top + window.scrollY - 122), behavior: 'smooth' });
   };
   return <div className="auth-page landing-page">
     <header className="landing-nav"><Logo /><nav><a href="#features">Why BWallet</a><a href="#how-it-works">How it works</a><a href="#faq">FAQ</a><a href="#contact">Contact</a><a className="landing-nav-cta" href="#access" onClick={openAccess('signup')}>Get started <ArrowUpRight size={14} /></a></nav></header>
