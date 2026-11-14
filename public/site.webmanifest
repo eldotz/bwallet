@@ -1,0 +1,17 @@
+{
+  "name": "BWallet — Partnership finances",
+  "short_name": "BWallet",
+  "description": "Track shared business money, partner balances, expenses, and loans.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f9f8",
+  "theme_color": "#14333a",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
