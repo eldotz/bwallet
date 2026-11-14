@@ -406,7 +406,7 @@ function ProfileModal({ user, onClose, notify, openAuth, onSignedOut }) {
 
 function AuthScreen({ onAuthenticated }) {
   return <div className="auth-page landing-page">
-    <header className="landing-nav"><Logo /><nav><a href="#features">Why BWallet</a><a href="#how-it-works">How it works</a><a className="landing-nav-cta" href="#access">Get started <ArrowUpRight size={14} /></a></nav></header>
+    <header className="landing-nav"><Logo /><nav><a href="#features">Why BWallet</a><a href="#how-it-works">How it works</a><a href="#contact">Contact</a><a className="landing-nav-cta" href="#access">Get started <ArrowUpRight size={14} /></a></nav></header>
     <main>
       <section className="landing-hero">
         <div className="landing-hero-copy"><p className="eyebrow">Partnership finance, clarified</p><h1>Keep your business money in common.</h1><p>Contributions, shared costs, partner draws and loans — tracked together, without spreadsheets.</p><div className="landing-actions"><a className="landing-cta" href="#access">Start your workspace <ArrowUpRight size={15} /></a><span>No spreadsheets. No awkward math.</span></div><div className="landing-proof"><ShieldCheck size={17} /><span><b>Private workspace access</b><small>Every partner sees the same clear ledger.</small></span></div></div>
@@ -417,8 +417,9 @@ function AuthScreen({ onAuthenticated }) {
       <section className="landing-usecases"><p className="eyebrow">Made for partnerships</p><div><span>CO-FOUNDERS</span><i>✳</i><span>FAMILY BUSINESSES</span><i>✳</i><span>SMALL TEAMS</span><i>✳</i><span>SIDE VENTURES</span></div></section>
       <section className="landing-section landing-process" id="how-it-works"><div className="landing-section-intro"><p className="eyebrow">How it works</p><h2>From scattered updates to shared clarity.</h2></div><div className="landing-steps"><div><b>01</b><h3>Create a workspace</h3><p>Set up one private space for your partnership.</p></div><div><b>02</b><h3>Invite your partners</h3><p>Share your workspace code and get everyone aligned.</p></div><div><b>03</b><h3>Record every movement</h3><p>Track investments, spending, withdrawals, loans, and returns.</p></div></div></section>
       <section className="landing-cta"><div><p className="eyebrow">A clearer partnership starts here</p><h2>Keep every money decision in the open.</h2><p>Start with your first workspace and build a ledger your whole team can trust.</p></div><a className="landing-cta light" href="#access">Create workspace <ArrowUpRight size={15} /></a></section>
+      <section className="landing-section landing-contact" id="contact"><div><p className="eyebrow">Contact us</p><h2>Have a question about shared business money?</h2><p>Tell us what you are building, and we will help you find a clearer way to manage it.</p></div><div className="landing-contact-action"><span>Say hello</span><a href="mailto:hello@bwallet.app">hello@bwallet.app <ArrowUpRight size={18} /></a></div></section>
     </main>
-    <footer className="landing-footer"><Logo /><span>Partnership finances, clarified.</span><a href="#access">Sign in</a></footer>
+    <footer className="landing-footer"><Logo /><span>Partnership finances, clarified.</span><div className="landing-footer-links"><a href="#contact">Contact</a><a href="#access">Sign in</a></div><small>© 2026 BWallet. All rights reserved.</small></footer>
   </div>;
 }
 
