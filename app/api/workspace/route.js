@@ -14,13 +14,12 @@ export async function GET() {
   ]);
   if (organizationError || membersError || businessesError || !organization) return json({ error: 'Could not load workspace.' }, 500);
 
-  const { data: movements, error: movementsError } = await supabaseAdmin.from('ledgerly_transactions').select('user_id, allocation_user_id, taken_by_user_id, entry_type, amount').eq('organization_id', orgId);
+  const { data: movements, error: movementsError } = await supabaseAdmin.from('ledgerly_transactions').select('allocation_type, allocation_user_id, taken_by_user_id, entry_type, amount').eq('organization_id', orgId);
   if (movementsError) return json({ error: 'Could not load workspace balances.' }, 500);
 
   const memberBalances = (members || []).map((member) => {
     const balance = (movements || []).reduce((sum, movement) => {
-      const walletOwnerId = movement.allocation_user_id || movement.user_id;
-      if (movement.entry_type === 'investment' && walletOwnerId === member.id) return sum - movement.amount;
+      if (movement.entry_type === 'investment' && movement.allocation_type === 'individual' && movement.allocation_user_id === member.id) return sum - movement.amount;
       if (['withdrawal', 'loan_withdrawal', 'partner_repayment'].includes(movement.entry_type) && movement.taken_by_user_id === member.id) return sum + movement.amount;
       return sum;
     }, 0);
