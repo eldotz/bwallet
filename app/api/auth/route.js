@@ -53,7 +53,7 @@ export async function POST(request) {
     let role = 'partner';
 
     if (action === 'signup') {
-      if (!profileName || !organizationName) return json({ error: 'Name and workspace are required.' }, 400);
+      if (!profileName || !organizationName) return json({ error: 'Name and partnership hub are required.' }, 400);
       const generatedInviteCode = `NS-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
       const { data: organization, error: organizationError } = await supabaseAdmin.from('ledgerly_organizations').insert({ name: organizationName, invite_code: generatedInviteCode }).select('id').single();
       if (organizationError) throw organizationError;
@@ -96,7 +96,7 @@ export async function POST(request) {
     await removeAuthUser(createdAuthUserId);
     await removeOrganization(createdOrganizationId);
     const message = String(error.message || '').toLowerCase();
-    if (message.includes('duplicate') || message.includes('already registered')) return json({ error: 'That email or workspace is already in use.' }, 409);
+    if (message.includes('duplicate') || message.includes('already registered')) return json({ error: 'That email or partnership hub is already in use.' }, 409);
     return json({ error: 'Could not complete sign-in.' }, 500);
   }
 }
