@@ -405,7 +405,19 @@ function ProfileModal({ user, onClose, notify, openAuth, onSignedOut }) {
 }
 
 function AuthScreen({ onAuthenticated }) {
-  return <div className="auth-page"><div className="auth-pitch"><Logo /><div><p className="eyebrow">Partnership finance, clarified</p><h1>Keep your business money in common.</h1><p>Contributions, shared costs, partner draws and loans — tracked together, without spreadsheets.</p></div><div className="auth-pitch-note"><ShieldCheck size={16} /> Private workspace access for every partner</div></div><div className="auth-card"><div className="auth-card-head"><h2>Welcome to BWallet</h2><p>Sign in or create your business workspace.</p></div><AuthFields onAuthenticated={onAuthenticated} /></div></div>;
+  return <div className="auth-page landing-page">
+    <header className="landing-nav"><Logo /><nav><a href="#features">Why BWallet</a><a href="#how-it-works">How it works</a><a className="landing-nav-cta" href="#access">Get started <ArrowUpRight size={14} /></a></nav></header>
+    <main>
+      <section className="landing-hero">
+        <div className="landing-hero-copy"><p className="eyebrow">Partnership finance, clarified</p><h1>Keep your business money in common.</h1><p>Contributions, shared costs, partner draws and loans — tracked together, without spreadsheets.</p><div className="landing-actions"><a className="landing-cta" href="#access">Start your workspace <ArrowUpRight size={15} /></a><span>No spreadsheets. No awkward math.</span></div><div className="landing-proof"><ShieldCheck size={17} /><span><b>Private workspace access</b><small>Every partner sees the same clear ledger.</small></span></div></div>
+        <div id="access" className="auth-card landing-access"><div className="auth-card-head"><h2>Welcome to BWallet</h2><p>Sign in or create your business workspace.</p></div><AuthFields onAuthenticated={onAuthenticated} /></div>
+      </section>
+      <section className="landing-section" id="features"><div className="landing-section-intro"><p className="eyebrow">One source of truth</p><h2>Make shared money easier to understand.</h2><p>BWallet gives partners a simple place to record every contribution, cost, draw, and return.</p></div><div className="landing-feature-grid"><article><span className="landing-feature-icon"><Wallet size={19} /></span><h3>Partner wallets</h3><p>See who put money in, who took money out, and what is still owed.</p></article><article><span className="landing-feature-icon"><Building2 size={19} /></span><h3>Business portfolio</h3><p>Keep investments and expenses separated across every business you run.</p></article><article><span className="landing-feature-icon"><Landmark size={19} /></span><h3>Loans stay clear</h3><p>Keep borrowed money separate from business profit and everyday spending.</p></article></div></section>
+      <section className="landing-section landing-process" id="how-it-works"><div className="landing-section-intro"><p className="eyebrow">How it works</p><h2>From scattered updates to shared clarity.</h2></div><div className="landing-steps"><div><b>01</b><h3>Create a workspace</h3><p>Set up one private space for your partnership.</p></div><div><b>02</b><h3>Invite your partners</h3><p>Share your workspace code and get everyone aligned.</p></div><div><b>03</b><h3>Record every movement</h3><p>Track investments, spending, withdrawals, loans, and returns.</p></div></div></section>
+      <section className="landing-cta"><div><p className="eyebrow">A clearer partnership starts here</p><h2>Keep every money decision in the open.</h2><p>Start with your first workspace and build a ledger your whole team can trust.</p></div><a className="landing-cta light" href="#access">Create workspace <ArrowUpRight size={15} /></a></section>
+    </main>
+    <footer className="landing-footer"><Logo /><span>Partnership finances, clarified.</span><a href="#access">Sign in</a></footer>
+  </div>;
 }
 
 function AuthFields({ onAuthenticated, notify = () => {}, close = () => {} }) {
