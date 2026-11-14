@@ -16,6 +16,7 @@ import {
   History,
   Home,
   Landmark,
+  LoaderCircle,
   LogOut,
   Menu,
   Plus,
@@ -58,9 +59,25 @@ function EmptyState({ icon: Icon, title, copy, action }) {
   return <div className="empty-state"><div className="empty-icon"><Icon size={22} /></div><strong>{title}</strong><span>{copy}</span>{action}</div>;
 }
 
+function LoadingState({ copy = 'Loading...' }) {
+  return <div className="loading-state" role="status" aria-live="polite"><LoaderCircle className="loading-spinner" size={20} /><span>{copy}</span></div>;
+}
+
+function FailureState({ title, copy, onRetry }) {
+  return <div className="app-loading failure-state" role="alert"><Logo /><strong>{title}</strong><span>{copy}</span><button className="primary-button" onClick={onRetry}>Try again</button></div>;
+}
+
+async function readApiResponse(response, fallback) {
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || fallback);
+  return result;
+}
+
 export default function HomePage() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const [authAttempt, setAuthAttempt] = useState(0);
   const [active, setActive] = useState('overview');
   const [transactions, setTransactions] = useState([]);
   const [people, setPeople] = useState([]);
@@ -74,23 +91,46 @@ export default function HomePage() {
   const [businessToArchive, setBusinessToArchive] = useState(null);
   const [toast, setToast] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataReady, setDataReady] = useState(false);
+  const [dataError, setDataError] = useState('');
+  const [dataAttempt, setDataAttempt] = useState(0);
+  const [savingTransaction, setSavingTransaction] = useState(false);
+  const [businessActionId, setBusinessActionId] = useState(null);
   const [form, setForm] = useState({ entryType: 'spend', amount: '', description: '', category: 'Business spend', businessId: '', source: 'wallet', allocationType: 'common', allocationUserId: '' });
 
   useEffect(() => {
-    fetch('/api/auth', { cache: 'no-store' }).then((response) => response.json()).then((result) => setAuthUser(result.user)).catch(() => setAuthUser(null)).finally(() => setAuthLoading(false));
-  }, []);
+    let cancelled = false;
+    setAuthLoading(true);
+    setAuthError('');
+    fetch('/api/auth', { cache: 'no-store' })
+      .then((response) => readApiResponse(response, 'Could not verify your session.'))
+      .then((result) => { if (!cancelled) setAuthUser(result.user); })
+      .catch((error) => { if (!cancelled) setAuthError(error.message || 'Could not verify your session.'); })
+      .finally(() => { if (!cancelled) setAuthLoading(false); });
+    return () => { cancelled = true; };
+  }, [authAttempt]);
 
   useEffect(() => {
     if (!authUser) return;
-    Promise.all([fetch('/api/transactions').then((response) => response.json()), fetch('/api/workspace').then((response) => response.json())]).then(([transactionResult, workspaceResult]) => {
-      if (Array.isArray(transactionResult.transactions)) setTransactions(transactionResult.transactions.map((item) => ({ id: item.id, userId: item.userId, name: item.description, note: `${item.businessName || 'Partner wallet'} · ${item.source}${item.takenByName ? ` · taken by ${item.takenByName}` : ''}`, category: item.category, type: item.type, entryType: item.entryType, source: item.source, allocationType: item.allocationType || 'common', allocationUserId: item.allocationUserId || '', allocationUserName: item.allocationUserName, businessId: item.businessId, businessName: item.businessName, takenById: item.takenById, takenByName: item.takenByName, amount: item.amount / 100, date: item.occurredOn, color: item.entryType === 'loan' ? 'purple' : item.entryType === 'investment' ? 'blue' : item.entryType === 'return' ? 'green' : 'orange', letter: item.description.slice(0, 1).toUpperCase() })));
-      if (Array.isArray(workspaceResult.members)) setPeople(workspaceResult.members.map((member, index) => ({ id: member.id, name: member.name, initials: member.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(), role: displayRole(member.role), color: index % 2 ? 'coral' : 'blue', balance: member.balance / 100, detail: member.balance < 0 ? 'Taken out' : member.balance > 0 ? 'Added to wallet' : 'No money added or taken yet' })));
-      if (Array.isArray(workspaceResult.businesses)) {
-        setBusinesses(workspaceResult.businesses.filter((business) => !business.archivedAt));
-        setArchivedBusinesses(workspaceResult.businesses.filter((business) => business.archivedAt));
-      }
-    }).catch(() => {});
-  }, [authUser]);
+    let cancelled = false;
+    setDataLoading(true);
+    setDataReady(false);
+    setDataError('');
+    Promise.all([
+      fetch('/api/transactions', { cache: 'no-store' }).then((response) => readApiResponse(response, 'Could not load transactions.')),
+      fetch('/api/workspace', { cache: 'no-store' }).then((response) => readApiResponse(response, 'Could not load partnership data.'))
+    ]).then(([transactionResult, workspaceResult]) => {
+      if (!Array.isArray(transactionResult.transactions) || !Array.isArray(workspaceResult.members) || !Array.isArray(workspaceResult.businesses)) throw new Error('Partnership data is incomplete.');
+      if (cancelled) return;
+      setTransactions(transactionResult.transactions.map((item) => ({ id: item.id, userId: item.userId, name: item.description, note: `${item.businessName || 'Partner wallet'} · ${item.source}${item.takenByName ? ` · taken by ${item.takenByName}` : ''}`, category: item.category, type: item.type, entryType: item.entryType, source: item.source, allocationType: item.allocationType || 'common', allocationUserId: item.allocationUserId || '', allocationUserName: item.allocationUserName, businessId: item.businessId, businessName: item.businessName, takenById: item.takenById, takenByName: item.takenByName, amount: item.amount / 100, date: item.occurredOn, color: item.entryType === 'loan' ? 'purple' : item.entryType === 'investment' ? 'blue' : item.entryType === 'return' ? 'green' : 'orange', letter: item.description.slice(0, 1).toUpperCase() })));
+      setPeople(workspaceResult.members.map((member, index) => ({ id: member.id, name: member.name, initials: member.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(), role: displayRole(member.role), color: index % 2 ? 'coral' : 'blue', balance: member.balance / 100, detail: member.balance < 0 ? 'Taken out' : member.balance > 0 ? 'Added to wallet' : 'No money added or taken yet' })));
+      setBusinesses(workspaceResult.businesses.filter((business) => !business.archivedAt));
+      setArchivedBusinesses(workspaceResult.businesses.filter((business) => business.archivedAt));
+      setDataReady(true);
+    }).catch((error) => { if (!cancelled) setDataError(error.message || 'Could not load partnership data.'); }).finally(() => { if (!cancelled) setDataLoading(false); });
+    return () => { cancelled = true; };
+  }, [authUser, dataAttempt]);
 
   const totals = useMemo(() => {
     const cash = transactions.filter((item) => item.entryType !== 'advance_spend').reduce((sum, item) => sum + item.amount, 0);
@@ -101,8 +141,11 @@ export default function HomePage() {
     return { cash, invested, spent, returns, loans, profit: returns - spent };
   }, [transactions]);
 
-  if (authLoading) return <div className="app-loading"><Logo /><span>Loading your partnership hub...</span></div>;
+  if (authLoading) return <div className="app-loading"><Logo /><LoadingState copy="Loading your partnership hub..." /></div>;
+  if (authError) return <FailureState title="Could not connect to BWallet" copy={authError} onRetry={() => setAuthAttempt((attempt) => attempt + 1)} />;
   if (!authUser) return <AuthScreen onAuthenticated={setAuthUser} />;
+  if (dataLoading && !dataReady) return <div className="app-loading"><Logo /><LoadingState copy="Loading your partnership data..." /></div>;
+  if (dataError && !dataReady) return <FailureState title="Could not load your partnership hub" copy={dataError} onRetry={() => setDataAttempt((attempt) => attempt + 1)} />;
 
   const notify = (message) => {
     setToast(message);
@@ -117,7 +160,10 @@ export default function HomePage() {
   const submitTransaction = async (event) => {
     event.preventDefault();
     const amount = Number(form.amount);
-    if (!amount || !form.description.trim()) return;
+    if (!amount || !form.description.trim()) {
+      notify('Enter an amount and description');
+      return;
+    }
     const isInflow = ['loan', 'return'].includes(form.entryType);
     const business = businesses.find((item) => String(item.id) === String(form.businessId));
     const created = {
@@ -142,13 +188,20 @@ export default function HomePage() {
     };
     const body = { entryType: form.entryType, source: form.source, allocationType: form.allocationType || 'common', allocationUserId: form.allocationUserId || (form.allocationType === 'individual' ? authUser.id : null), businessId: form.businessId || null, takenById: form.takenById || authUser.id, amount, description: form.description.trim(), category: form.category };
     const endpoint = editingTransaction ? `/api/transactions/${editingTransaction.id}` : '/api/transactions';
-    const response = await fetch(endpoint, { method: editingTransaction ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!response.ok) { notify('Could not save transaction'); return; }
-    setTransactions((current) => editingTransaction ? current.map((item) => item.id === editingTransaction.id ? created : item) : [created, ...current]);
-    setForm({ entryType: 'spend', amount: '', description: '', category: 'Business spend', businessId: '', source: 'wallet', allocationType: 'common', allocationUserId: '', takenById: '' });
-    setEditingTransaction(null);
-    setModal(null);
-    notify(editingTransaction ? 'Transaction updated and change recorded' : 'Transaction added to your ledger');
+    setSavingTransaction(true);
+    try {
+      const response = await fetch(endpoint, { method: editingTransaction ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await readApiResponse(response, 'Could not save transaction.');
+      setTransactions((current) => editingTransaction ? current.map((item) => item.id === editingTransaction.id ? created : item) : [created, ...current]);
+      setForm({ entryType: 'spend', amount: '', description: '', category: 'Business spend', businessId: '', source: 'wallet', allocationType: 'common', allocationUserId: '', takenById: '' });
+      setEditingTransaction(null);
+      setModal(null);
+      notify(editingTransaction ? 'Transaction updated and change recorded' : 'Transaction added to your ledger');
+    } catch (error) {
+      notify(error.message || 'Could not save transaction');
+    } finally {
+      setSavingTransaction(false);
+    }
   };
 
   const editTransaction = (item) => {
@@ -162,20 +215,33 @@ export default function HomePage() {
   const confirmArchiveBusiness = async () => {
     const business = businessToArchive;
     if (!business) return;
-    setBusinessToArchive(null);
-    const response = await fetch(`/api/businesses/${business.id}`, { method: 'DELETE' });
-    if (!response.ok) { notify('Could not archive business'); return; }
-    setBusinesses((current) => current.filter((item) => item.id !== business.id));
-    setArchivedBusinesses((current) => [...current, { ...business, archivedAt: new Date().toISOString() }]);
-    notify('Business archived; transactions were kept');
+    setBusinessActionId(business.id);
+    try {
+      const response = await fetch(`/api/businesses/${business.id}`, { method: 'DELETE' });
+      await readApiResponse(response, 'Could not archive business.');
+      setBusinesses((current) => current.filter((item) => item.id !== business.id));
+      setArchivedBusinesses((current) => [...current, { ...business, archivedAt: new Date().toISOString() }]);
+      setBusinessToArchive(null);
+      notify('Business archived; transactions were kept');
+    } catch (error) {
+      notify(error.message || 'Could not archive business');
+    } finally {
+      setBusinessActionId(null);
+    }
   };
   const restoreBusiness = async (business) => {
-    const response = await fetch(`/api/businesses/${business.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restore' }) });
-    const result = await response.json();
-    if (!response.ok) { notify(result.error || 'Could not restore business'); return; }
-    setArchivedBusinesses((current) => current.filter((item) => item.id !== business.id));
-    setBusinesses((current) => [...current, result.business]);
-    notify('Business restored');
+    setBusinessActionId(business.id);
+    try {
+      const response = await fetch(`/api/businesses/${business.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restore' }) });
+      const result = await readApiResponse(response, 'Could not restore business.');
+      setArchivedBusinesses((current) => current.filter((item) => item.id !== business.id));
+      setBusinesses((current) => [...current, result.business]);
+      notify('Business restored');
+    } catch (error) {
+      notify(error.message || 'Could not restore business');
+    } finally {
+      setBusinessActionId(null);
+    }
   };
   const openLoan = () => { setEditingTransaction(null); setForm({ entryType: 'loan', amount: '', description: '', category: 'Loan received', businessId: '', source: 'loan', allocationType: 'common', allocationUserId: '', takenById: '' }); setModal('transaction'); };
 
@@ -205,7 +271,7 @@ export default function HomePage() {
           <div className="page-heading"><div><p className="eyebrow">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p><h1>{active === 'overview' ? `Good morning, ${authUser.name.split(' ')[0]}` : navItems.find((item) => item.id === active)?.label}</h1><p className="heading-copy">A simple view of your money, businesses, partners, and loans.</p></div>{active !== 'overview' && <button className="primary-button desktop-add" onClick={() => setModal('transaction')}><Plus size={18} /> Add a transaction</button>}</div>
 
           {active === 'overview' && <Overview totals={totals} transactions={transactions} people={people} businesses={businesses} setActive={setActive} openTransaction={() => setModal('transaction')} openBusiness={() => setModal('business')} notify={notify} onArchiveBusiness={archiveBusiness} />}
-          {active === 'businesses' && <Businesses businesses={businesses} archivedBusinesses={archivedBusinesses} transactions={transactions} openBusiness={() => setModal('business')} openTransaction={() => setModal('transaction')} onArchiveBusiness={archiveBusiness} onRestoreBusiness={restoreBusiness} />}
+          {active === 'businesses' && <Businesses businesses={businesses} archivedBusinesses={archivedBusinesses} transactions={transactions} openBusiness={() => setModal('business')} openTransaction={() => setModal('transaction')} onArchiveBusiness={archiveBusiness} onRestoreBusiness={restoreBusiness} businessActionId={businessActionId} />}
           {active === 'transactions' && <Transactions transactions={transactions} openTransaction={() => { setEditingTransaction(null); setModal('transaction'); }} onEdit={editTransaction} onHistory={viewHistory} />}
           {active === 'people' && <People people={people} transactions={transactions} openInvite={() => setModal('invite')} onViewLedger={(person) => { setLedgerPartner(person); setModal('ledger'); }} />}
           {active === 'loans' && <Loans transactions={transactions} notify={notify} openLoan={openLoan} />}
@@ -216,11 +282,11 @@ export default function HomePage() {
       <button className="mobile-add" onClick={() => setModal('transaction')}><Plus size={22} /></button>
       <nav className="bottom-nav">{navItems.slice(0, 4).map(({ id, label, icon: Icon }) => <button key={id} className={active === id ? 'active' : ''} onClick={() => selectNav(id)}><Icon size={19} /><span>{id === 'loans' ? 'Debts' : label}</span></button>)}</nav>
 
-      {modal === 'transaction' && <TransactionModal form={form} setForm={setForm} businesses={businesses} people={people} currentUserId={authUser.id} currentUserName={authUser.name} editing={editingTransaction} onAddBusiness={() => { setReturnToMovement(true); setModal('business'); }} onClose={() => { setModal(null); setEditingTransaction(null); }} onSubmit={submitTransaction} />}
+      {modal === 'transaction' && <TransactionModal form={form} setForm={setForm} businesses={businesses} people={people} currentUserId={authUser.id} currentUserName={authUser.name} editing={editingTransaction} submitting={savingTransaction} onAddBusiness={() => { setReturnToMovement(true); setModal('business'); }} onClose={() => { setModal(null); setEditingTransaction(null); }} onSubmit={submitTransaction} />}
       {modal === 'history' && <HistoryModal transaction={historyTransaction} onClose={() => { setModal(null); setHistoryTransaction(null); }} />}
       {modal === 'ledger' && <PartnerLedgerModal partner={ledgerPartner} transactions={transactions} onClose={() => { setModal(null); setLedgerPartner(null); }} />}
       {modal === 'business' && <BusinessModal onClose={() => { setReturnToMovement(false); setModal(null); }} onCreated={(business) => { setBusinesses((current) => [...current, business]); if (returnToMovement) { setForm((current) => ({ ...current, businessId: business.id })); setReturnToMovement(false); setModal('transaction'); } else setModal(null); }} />}
-      {businessToArchive && <ConfirmArchiveModal business={businessToArchive} onClose={() => setBusinessToArchive(null)} onConfirm={confirmArchiveBusiness} />}
+      {businessToArchive && <ConfirmArchiveModal business={businessToArchive} busy={Boolean(businessActionId)} onClose={() => setBusinessToArchive(null)} onConfirm={confirmArchiveBusiness} />}
       {modal === 'invite' && <InviteModal user={authUser} onClose={() => setModal(null)} notify={notify} />}
       {modal === 'profile' && <ProfileModal user={authUser} onClose={() => setModal(null)} notify={notify} openAuth={() => setModal('auth')} onSignedOut={() => setAuthUser(null)} />} 
       {modal === 'auth' && <AuthModal onClose={() => setModal(null)} notify={notify} onAuthenticated={setAuthUser} />}
@@ -262,30 +328,37 @@ function BusinessCard({ business, transactions, openTransaction, onArchive }) {
   return <div className="business-card"><div className="business-card-top"><span className="business-icon"><Building2 size={17} /></span><div className="business-card-actions"><span className="role-pill">Active</span>{onArchive && <button className="business-delete" aria-label={`Archive ${business.name}`} onClick={onArchive}><Trash2 size={14} /></button>}</div></div><h3>{business.name}</h3>{business.description && <p>{business.description}</p>}<div className="business-metrics"><span><small>Invested</small><b>{money(invested)}</b></span><span><small>Spent</small><b>{money(spent)}</b></span><span><small>Money back</small><b>{money(returned)}</b></span></div><button className="card-link" onClick={openTransaction}>Add transaction <ChevronRight size={14} /></button></div>;
 }
 
-function Businesses({ businesses, archivedBusinesses, transactions, openBusiness, openTransaction, onArchiveBusiness, onRestoreBusiness }) {
-  return <><section className="people-hero business-hero"><div><p className="eyebrow">Partner wallet</p><h2>Every business, clearly separated.</h2><p>See what you invested, spent and got back in each venture.</p></div><button className="primary-button" onClick={openBusiness}><Plus size={17} /> Add business</button></section><BusinessPortfolio businesses={businesses} transactions={transactions} openBusiness={openBusiness} openTransaction={openTransaction} onArchiveBusiness={onArchiveBusiness} />{archivedBusinesses.length > 0 && <ArchivedBusinesses businesses={archivedBusinesses} onRestore={onRestoreBusiness} />}</>;
+function Businesses({ businesses, archivedBusinesses, transactions, openBusiness, openTransaction, onArchiveBusiness, onRestoreBusiness, businessActionId }) {
+  return <><section className="people-hero business-hero"><div><p className="eyebrow">Partner wallet</p><h2>Every business, clearly separated.</h2><p>See what you invested, spent and got back in each venture.</p></div><button className="primary-button" onClick={openBusiness}><Plus size={17} /> Add business</button></section><BusinessPortfolio businesses={businesses} transactions={transactions} openBusiness={openBusiness} openTransaction={openTransaction} onArchiveBusiness={onArchiveBusiness} />{archivedBusinesses.length > 0 && <ArchivedBusinesses businesses={archivedBusinesses} onRestore={onRestoreBusiness} restoringId={businessActionId} />}</>;
 }
 
-function ArchivedBusinesses({ businesses, onRestore }) {
-  return <section className="panel archived-businesses"><div className="panel-heading"><div><h2>Archived businesses</h2><p>Transactions are preserved. Restore a business to use it again.</p></div><span className="count-pill">{businesses.length} archived</span></div><div className="archived-list">{businesses.map((business) => <div className="archived-row" key={business.id}><div><b>{business.name}</b>{business.description && <span>{business.description}</span>}</div><button className="outline-button" onClick={() => onRestore(business)}>Restore</button></div>)}</div></section>;
+function ArchivedBusinesses({ businesses, onRestore, restoringId }) {
+  return <section className="panel archived-businesses"><div className="panel-heading"><div><h2>Archived businesses</h2><p>Transactions are preserved. Restore a business to use it again.</p></div><span className="count-pill">{businesses.length} archived</span></div><div className="archived-list">{businesses.map((business) => { const restoring = restoringId !== null; return <div className="archived-row" key={business.id}><div><b>{business.name}</b>{business.description && <span>{business.description}</span>}</div><button className="outline-button" disabled={restoring} onClick={() => onRestore(business)}>{restoring ? 'Restoring...' : 'Restore'}</button></div>; })}</div></section>;
 }
 
-function ConfirmArchiveModal({ business, onClose, onConfirm }) {
-  return <ModalShell title="Archive business?" subtitle="This keeps every transaction and removes business from active lists." onClose={onClose}><div className="confirm-copy"><Trash2 size={20} /><p><b>{business.name}</b> will be archived. Its ledger history will remain available.</p></div><div className="confirm-actions"><button className="movement-cancel" onClick={onClose}>Cancel</button><button className="danger-button" onClick={onConfirm}>Archive business</button></div></ModalShell>;
+function ConfirmArchiveModal({ business, busy, onClose, onConfirm }) {
+  return <ModalShell title="Archive business?" subtitle="This keeps every transaction and removes business from active lists." onClose={onClose}><div className="confirm-copy"><Trash2 size={20} /><p><b>{business.name}</b> will be archived. Its ledger history will remain available.</p></div><div className="confirm-actions"><button className="movement-cancel" disabled={busy} onClick={onClose}>Cancel</button><button className="danger-button" disabled={busy} onClick={onConfirm}>{busy ? 'Archiving...' : 'Archive business'}</button></div></ModalShell>;
 }
 
 function BusinessModal({ onClose, onCreated }) {
   const [form, setForm] = useState({ name: '', description: '' });
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   const submit = async (event) => {
     event.preventDefault();
     setError('');
-    const response = await fetch('/api/businesses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-    const result = await response.json();
-    if (!response.ok) { setError(result.error || 'Could not add business.'); return; }
-    onCreated(result.business);
+    setSaving(true);
+    try {
+      const response = await fetch('/api/businesses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const result = await readApiResponse(response, 'Could not add business.');
+      onCreated(result.business);
+    } catch (requestError) {
+      setError(requestError.message || 'Could not add business.');
+    } finally {
+      setSaving(false);
+    }
   };
-  return <ModalShell title="Add a business" subtitle="Create a place to track investments and spend." onClose={onClose}><form onSubmit={submit}><label>Business name<input autoFocus required placeholder="e.g. Sunrise Foods" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>Description <span className="optional">Optional</span><input placeholder="What does this business do?" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>{error && <p className="form-error">{error}</p>}<button className="primary-button modal-submit" type="submit"><Plus size={17} /> Add business</button></form></ModalShell>;
+  return <ModalShell title="Add a business" subtitle="Create a place to track investments and spend." onClose={onClose}><form onSubmit={submit}><label>Business name<input autoFocus required disabled={saving} placeholder="e.g. Sunrise Foods" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>Description <span className="optional">Optional</span><input disabled={saving} placeholder="What does this business do?" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>{error && <p className="form-error">{error}</p>}<button className="primary-button modal-submit" disabled={saving} type="submit"><Plus size={17} /> {saving ? 'Adding...' : 'Add business'}</button></form></ModalShell>;
 }
 
 function CashflowChart({ transactions }) {
@@ -354,7 +427,7 @@ function Reports({ totals, transactions }) {
 
 function ModalShell({ children, title, subtitle, onClose, wide = false }) { return <div className="modal-backdrop" onMouseDown={onClose}><div className={`modal ${wide ? 'wide' : ''}`} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="modal-close" onClick={onClose}><X size={19} /></button></div>{children}</div></div>; }
 
-function TransactionModal({ form, setForm, businesses, people, currentUserId, currentUserName, editing, onAddBusiness, onClose, onSubmit }) {
+function TransactionModal({ form, setForm, businesses, people, currentUserId, currentUserName, editing, submitting, onAddBusiness, onClose, onSubmit }) {
   const entryTypes = [
     ['investment', 'Invest in business', 'Put wallet money to work'],
     ['spend', 'Business spend', 'Pay a business cost'],
@@ -370,7 +443,7 @@ function TransactionModal({ form, setForm, businesses, people, currentUserId, cu
   const [showMoreTypes, setShowMoreTypes] = useState(Boolean(editing && !commonEntryTypes.includes(editing.entryType)));
   const tracksPerson = ['withdrawal', 'loan_withdrawal', 'advance_spend', 'partner_repayment'].includes(form.entryType);
   const setEntryType = (value) => setForm({ ...form, entryType: value, source: value === 'loan' || value === 'loan_withdrawal' ? 'loan' : value === 'advance_spend' ? 'partner_advance' : value === 'partner_repayment' ? 'partner' : value === 'investment' ? 'wallet' : form.source, allocationType: ['investment', 'spend', 'loan', 'loan_withdrawal'].includes(value) ? form.allocationType || 'common' : 'common', allocationUserId: ['investment', 'spend', 'loan', 'loan_withdrawal'].includes(value) ? form.allocationUserId || '' : '', takenById: ['withdrawal', 'loan_withdrawal', 'advance_spend', 'partner_repayment'].includes(value) ? form.takenById || currentUserId : form.takenById });
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="movement-dialog" onMouseDown={(event) => event.stopPropagation()}><header className="movement-header"><div className="movement-brand"><span className="movement-brand-icon">₹</span><div><span className="movement-kicker">BWallet · partner wallet</span><h2>{editing ? 'Edit transaction' : 'Add a transaction'}</h2></div></div><button className="movement-close" onClick={onClose} aria-label="Close"><X size={20} /></button></header><p className="movement-subtitle">Tell BWallet what happened to your shared money.</p><form onSubmit={onSubmit}><section className="movement-section"><div className="movement-section-title"><span>01</span><div><b>Choose a transaction</b><small>What happened?</small></div></div><div className="movement-types">{entryTypes.filter(([value]) => showMoreTypes || commonEntryTypes.includes(value)).map(([value, label, description]) => <button type="button" key={value} className={form.entryType === value ? 'selected' : ''} onClick={() => setEntryType(value)}><span className="movement-type-mark">{value === 'loan' || value === 'loan_withdrawal' ? 'L' : value === 'return' || value === 'partner_repayment' ? '↩' : value === 'spend' || value === 'advance_spend' ? '−' : '↗'}</span><span><b>{label}</b><small>{description}</small></span></button>)}</div>{<button type="button" className="movement-more" onClick={() => setShowMoreTypes((current) => !current)}>{showMoreTypes ? 'Show common transactions' : 'More transaction types'} <ChevronDown size={14} /></button>}</section><section className="movement-section"><div className="movement-section-title"><span>02</span><div><b>Add the details</b><small>Give your partners enough context</small></div></div><div className="movement-fields"><label className="movement-amount-field">Amount<div className="movement-amount"><span>₹</span><input autoFocus required type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div></label><label>Business <em>Optional for wallet or loan-only entries</em><select value={form.businessId} onChange={(e) => e.target.value === '__new_business__' ? onAddBusiness() : setForm({ ...form, businessId: e.target.value })}><option value="">Partner wallet / no business</option>{businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}<option value="__new_business__">＋ Add new business</option></select></label>{['investment', 'spend', 'loan', 'loan_withdrawal'].includes(form.entryType) && <label className="movement-full">Whose money is this? <em>Choose the wallet this belongs to</em><div className="allocation-options"><button type="button" className={form.allocationType === 'common' ? 'selected' : ''} onClick={() => setForm({ ...form, allocationType: 'common', allocationUserId: '' })}><b>Shared wallet</b><small>Common partnership money</small></button><button type="button" className={form.allocationType === 'individual' ? 'selected' : ''} onClick={() => setForm({ ...form, allocationType: 'individual', allocationUserId: form.allocationUserId || currentUserId })}><b>Individual wallet</b><small>One partner&apos;s money</small></button></div></label>}{['investment', 'spend', 'loan', 'loan_withdrawal'].includes(form.entryType) && form.allocationType === 'individual' && <label className="movement-full">Wallet owner <em>Select the partner whose wallet pays or receives this</em><select required value={form.allocationUserId || currentUserId} onChange={(e) => setForm({ ...form, allocationUserId: e.target.value })}>{people.length ? people.map((person) => <option key={person.id} value={person.id}>{person.name}{String(person.id) === String(currentUserId) ? ' (me)' : ''}</option>) : <option value={currentUserId}>{currentUserName} (me)</option>}</select></label>}<label className="movement-full">Description<input required placeholder="e.g. First stock purchase" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>{tracksPerson && <label>Partner involved <em>{form.entryType === 'partner_repayment' ? 'Who is repaying?' : 'Who received or spent the money?'}</em><select required value={form.takenById || currentUserId} onChange={(e) => setForm({ ...form, takenById: e.target.value })}>{people.length ? people.map((person) => <option key={person.id} value={person.id}>{person.name}{String(person.id) === String(currentUserId) ? ' (me)' : ''}</option>) : <option value={currentUserId}>{currentUserName} (me)</option>}</select></label>}<label>Source of money<select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value, entryType: form.entryType === 'withdrawal' && e.target.value === 'loan' ? 'loan_withdrawal' : form.entryType === 'loan_withdrawal' && e.target.value !== 'loan' ? 'withdrawal' : form.entryType })}><option value="wallet">Partner wallet</option><option value="loan">Loan money</option><option value="profit">Business profit</option><option value="partner">Partner funds</option><option value="partner_advance">Previously taken money</option></select></label><label>Category<select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option>Business investment</option><option>Business spend</option><option>Loan received</option><option>Loan repayment</option><option>Partner withdrawal</option><option>Advance spent</option><option>Partner repayment</option><option>Money returned</option></select></label></div><p className="movement-note"><ShieldCheck size={15} /><span>For money taken by a partner: record who received it, what it was used for, and when it was repaid.</span></p></section><footer className="movement-footer"><button type="button" className="movement-cancel" onClick={onClose}>Cancel</button><button className="primary-button movement-submit" type="submit">{editing ? 'Save transaction' : 'Add transaction'}</button></footer></form></div></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="movement-dialog" onMouseDown={(event) => event.stopPropagation()}><header className="movement-header"><div className="movement-brand"><span className="movement-brand-icon">₹</span><div><span className="movement-kicker">BWallet · partner wallet</span><h2>{editing ? 'Edit transaction' : 'Add a transaction'}</h2></div></div><button className="movement-close" onClick={onClose} aria-label="Close"><X size={20} /></button></header><p className="movement-subtitle">Tell BWallet what happened to your shared money.</p><form onSubmit={onSubmit}><section className="movement-section"><div className="movement-section-title"><span>01</span><div><b>Choose a transaction</b><small>What happened?</small></div></div><div className="movement-types">{entryTypes.filter(([value]) => showMoreTypes || commonEntryTypes.includes(value)).map(([value, label, description]) => <button type="button" key={value} className={form.entryType === value ? 'selected' : ''} onClick={() => setEntryType(value)}><span className="movement-type-mark">{value === 'loan' || value === 'loan_withdrawal' ? 'L' : value === 'return' || value === 'partner_repayment' ? '↩' : value === 'spend' || value === 'advance_spend' ? '−' : '↗'}</span><span><b>{label}</b><small>{description}</small></span></button>)}</div>{<button type="button" className="movement-more" onClick={() => setShowMoreTypes((current) => !current)}>{showMoreTypes ? 'Show common transactions' : 'More transaction types'} <ChevronDown size={14} /></button>}</section><section className="movement-section"><div className="movement-section-title"><span>02</span><div><b>Add the details</b><small>Give your partners enough context</small></div></div><div className="movement-fields"><label className="movement-amount-field">Amount<div className="movement-amount"><span>₹</span><input autoFocus required type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div></label><label>Business <em>Optional for wallet or loan-only entries</em><select value={form.businessId} onChange={(e) => e.target.value === '__new_business__' ? onAddBusiness() : setForm({ ...form, businessId: e.target.value })}><option value="">Partner wallet / no business</option>{businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}<option value="__new_business__">＋ Add new business</option></select></label>{['investment', 'spend', 'loan', 'loan_withdrawal'].includes(form.entryType) && <label className="movement-full">Whose money is this? <em>Choose the wallet this belongs to</em><div className="allocation-options"><button type="button" className={form.allocationType === 'common' ? 'selected' : ''} onClick={() => setForm({ ...form, allocationType: 'common', allocationUserId: '' })}><b>Shared wallet</b><small>Common partnership money</small></button><button type="button" className={form.allocationType === 'individual' ? 'selected' : ''} onClick={() => setForm({ ...form, allocationType: 'individual', allocationUserId: form.allocationUserId || currentUserId })}><b>Individual wallet</b><small>One partner&apos;s money</small></button></div></label>}{['investment', 'spend', 'loan', 'loan_withdrawal'].includes(form.entryType) && form.allocationType === 'individual' && <label className="movement-full">Wallet owner <em>Select the partner whose wallet pays or receives this</em><select required value={form.allocationUserId || currentUserId} onChange={(e) => setForm({ ...form, allocationUserId: e.target.value })}>{people.length ? people.map((person) => <option key={person.id} value={person.id}>{person.name}{String(person.id) === String(currentUserId) ? ' (me)' : ''}</option>) : <option value={currentUserId}>{currentUserName} (me)</option>}</select></label>}<label className="movement-full">Description<input required placeholder="e.g. First stock purchase" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>{tracksPerson && <label>Partner involved <em>{form.entryType === 'partner_repayment' ? 'Who is repaying?' : 'Who received or spent the money?'}</em><select required value={form.takenById || currentUserId} onChange={(e) => setForm({ ...form, takenById: e.target.value })}>{people.length ? people.map((person) => <option key={person.id} value={person.id}>{person.name}{String(person.id) === String(currentUserId) ? ' (me)' : ''}</option>) : <option value={currentUserId}>{currentUserName} (me)</option>}</select></label>}<label>Source of money<select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value, entryType: form.entryType === 'withdrawal' && e.target.value === 'loan' ? 'loan_withdrawal' : form.entryType === 'loan_withdrawal' && e.target.value !== 'loan' ? 'withdrawal' : form.entryType })}><option value="wallet">Partner wallet</option><option value="loan">Loan money</option><option value="profit">Business profit</option><option value="partner">Partner funds</option><option value="partner_advance">Previously taken money</option></select></label><label>Category<select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option>Business investment</option><option>Business spend</option><option>Loan received</option><option>Loan repayment</option><option>Partner withdrawal</option><option>Advance spent</option><option>Partner repayment</option><option>Money returned</option></select></label></div><p className="movement-note"><ShieldCheck size={15} /><span>For money taken by a partner: record who received it, what it was used for, and when it was repaid.</span></p></section><footer className="movement-footer"><button type="button" className="movement-cancel" disabled={submitting} onClick={onClose}>Cancel</button><button className="primary-button movement-submit" disabled={submitting} type="submit">{submitting ? 'Saving...' : editing ? 'Save transaction' : 'Add transaction'}</button></footer></form></div></div>;
 }
 
 function PartnerLedgerModal({ partner, transactions, onClose }) {
@@ -382,13 +455,26 @@ function PartnerLedgerModal({ partner, transactions, onClose }) {
 
 function HistoryModal({ transaction, onClose }) {
   const [history, setHistory] = useState(null);
-  useEffect(() => { fetch(`/api/transactions/${transaction.id}`).then((response) => response.json()).then((result) => setHistory(result.history || [])).catch(() => setHistory([])); }, [transaction.id]);
-  return <ModalShell title="Entry history" subtitle={transaction.name} onClose={onClose}><div className="audit-list">{history === null ? <p className="history-loading">Loading history...</p> : history.length ? history.map((item) => <div className="audit-row" key={item.id}><span className="audit-dot" /><div><b>{item.action === 'created' ? 'Entry created' : 'Entry edited'}</b><span>{item.userName} · {item.createdAt}</span></div></div>) : <p className="history-loading">No history available.</p>}</div></ModalShell>;
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setHistory(null);
+    setError('');
+    fetch(`/api/transactions/${transaction.id}`, { cache: 'no-store' })
+      .then((response) => readApiResponse(response, 'Could not load entry history.'))
+      .then((result) => { if (!cancelled) setHistory(result.history || []); })
+      .catch((requestError) => { if (!cancelled) setError(requestError.message || 'Could not load entry history.'); });
+    return () => { cancelled = true; };
+  }, [transaction.id, attempt]);
+  return <ModalShell title="Entry history" subtitle={transaction.name} onClose={onClose}><div className="audit-list">{history === null && !error ? <LoadingState copy="Loading history..." /> : error ? <div className="inline-failure"><span>{error}</span><button className="text-button" onClick={() => setAttempt((current) => current + 1)}>Try again</button></div> : history.length ? history.map((item) => <div className="audit-row" key={item.id}><span className="audit-dot" /><div><b>{item.action === 'created' ? 'Entry created' : 'Entry edited'}</b><span>{item.userName} · {item.createdAt}</span></div></div>) : <p className="history-loading">No history available.</p>}</div></ModalShell>;
 }
 
 function InviteModal({ user, onClose, notify }) {
+  const [copying, setCopying] = useState(false);
   const copyCode = async () => {
     const code = user.inviteCode || '';
+    setCopying(true);
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(code);
       else {
@@ -404,15 +490,33 @@ function InviteModal({ user, onClose, notify }) {
       notify('Invite code copied');
     } catch {
       notify('Could not copy invite code');
+    } finally {
+      setCopying(false);
     }
   };
-  return <ModalShell title="Invite a partner" subtitle="Share this code with a partner so they can join the partnership hub." onClose={onClose}><div className="invite-code"><span>Partnership invite code</span><strong>{user.inviteCode || 'Unavailable'}</strong><button type="button" onClick={copyCode}><Copy size={15} /> Copy code</button></div><p className="form-hint"><ShieldCheck size={14} /><span>Partners can choose <b>Join</b> on the sign-in screen and enter this code. Only partnership members can access your business data.</span></p></ModalShell>;
+  return <ModalShell title="Invite a partner" subtitle="Share this code with a partner so they can join the partnership hub." onClose={onClose}><div className="invite-code"><span>Partnership invite code</span><strong>{user.inviteCode || 'Unavailable'}</strong><button type="button" disabled={copying || !user.inviteCode} onClick={copyCode}><Copy size={15} /> {copying ? 'Copying...' : 'Copy code'}</button></div><p className="form-hint"><ShieldCheck size={14} /><span>Partners can choose <b>Join</b> on the sign-in screen and enter this code. Only partnership members can access your business data.</span></p></ModalShell>;
 }
 
 function ProfileModal({ user, onClose, notify, openAuth, onSignedOut }) {
-  const logout = async () => { await fetch('/api/auth', { method: 'DELETE' }); onClose(); onSignedOut(); };
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [error, setError] = useState('');
+  const logout = async () => {
+    setLoggingOut(true);
+    setError('');
+    try {
+      const response = await fetch('/api/auth', { method: 'DELETE' });
+      await readApiResponse(response, 'Could not sign out.');
+      onClose();
+      onSignedOut();
+    } catch (requestError) {
+      setError(requestError.message || 'Could not sign out.');
+      notify(requestError.message || 'Could not sign out');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
   const initials = user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
-  return <ModalShell title="Your account" subtitle={`${user.name} · ${displayRole(user.role)}`} onClose={onClose}><div className="profile-card"><Avatar initials={initials} color="blue" /><div><b>{user.name}</b><span>{user.email}</span></div><span className="verified">Verified</span></div><button className="account-action" onClick={openAuth}><Users size={17} /> Switch or join partnership hub <ChevronRight size={16} /></button><button className="logout-button" onClick={logout}><LogOut size={16} /> Sign out</button></ModalShell>;
+  return <ModalShell title="Your account" subtitle={`${user.name} · ${displayRole(user.role)}`} onClose={onClose}><div className="profile-card"><Avatar initials={initials} color="blue" /><div><b>{user.name}</b><span>{user.email}</span></div><span className="verified">Verified</span></div>{error && <p className="form-error">{error}</p>}<button className="account-action" disabled={loggingOut} onClick={openAuth}><Users size={17} /> Switch or join partnership hub <ChevronRight size={16} /></button><button className="logout-button" disabled={loggingOut} onClick={logout}><LogOut size={16} /> {loggingOut ? 'Signing out...' : 'Sign out'}</button></ModalShell>;
 }
 
 function AuthScreen({ onAuthenticated }) {
@@ -447,10 +551,12 @@ function AuthFields({ onAuthenticated, notify = () => {}, close = () => {}, init
   const [form, setForm] = useState({ name: '', email: '', password: '', organization: '', inviteCode: '' });
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const submit = async (event) => {
     event.preventDefault();
     setError('');
     setNotice('');
+    setSubmitting(true);
     try {
       const response = await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: mode, ...form }) });
       const result = await response.json();
@@ -459,13 +565,15 @@ function AuthFields({ onAuthenticated, notify = () => {}, close = () => {}, init
         setNotice(result.message);
         return;
       }
-      const session = await fetch('/api/auth', { cache: 'no-store' }).then((sessionResponse) => sessionResponse.json());
+      const sessionResponse = await fetch('/api/auth', { cache: 'no-store' });
+      const session = await readApiResponse(sessionResponse, 'Could not establish your session.');
+      if (!session.user) throw new Error('Could not establish your session.');
       onAuthenticated(session.user);
       close();
       notify(mode === 'login' ? 'Signed in securely' : mode === 'join' ? 'Joined partnership hub' : 'Partnership hub created');
-    } catch (requestError) { setError(requestError.message || 'Could not sign in'); }
+    } catch (requestError) { setError(requestError.message || 'Could not sign in'); } finally { setSubmitting(false); }
   };
-  return <><div className="auth-tabs"><button type="button" className={mode === 'login' ? 'selected' : ''} onClick={() => setMode('login')}>Sign in</button><button type="button" className={mode === 'signup' ? 'selected' : ''} onClick={() => setMode('signup')}>New partnership hub</button><button type="button" className={mode === 'join' ? 'selected' : ''} onClick={() => setMode('join')}>Join</button></div><form onSubmit={submit}>{mode !== 'login' && <label>Your name<input required placeholder="Jordan Davis" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>}{mode === 'signup' && <label>Partnership hub name<input required placeholder="Northstar Studio" value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} /></label>}{mode === 'join' && <label>Invite code<input required placeholder="NS-7K4P-21" value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} /></label>}<label>Email<input required type="email" inputMode="email" autoComplete="email" placeholder="you@business.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label><label>Password<input required type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength="8" placeholder="8+ characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>{error && <p className="form-error">{error}</p>}{notice && <p className="form-success">{notice}</p>}<button className="primary-button modal-submit" type="submit">{mode === 'login' ? 'Sign in' : mode === 'join' ? 'Join partnership hub' : 'Create partnership hub'}</button></form><p className="modal-footnote"><ShieldCheck size={14} /> Encrypted sign-in for every partner.</p></>;
+  return <><div className="auth-tabs"><button type="button" disabled={submitting} className={mode === 'login' ? 'selected' : ''} onClick={() => setMode('login')}>Sign in</button><button type="button" disabled={submitting} className={mode === 'signup' ? 'selected' : ''} onClick={() => setMode('signup')}>New partnership hub</button><button type="button" disabled={submitting} className={mode === 'join' ? 'selected' : ''} onClick={() => setMode('join')}>Join</button></div><form onSubmit={submit}>{mode !== 'login' && <label>Your name<input required placeholder="Jordan Davis" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>}{mode === 'signup' && <label>Partnership hub name<input required placeholder="Northstar Studio" value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} /></label>}{mode === 'join' && <label>Invite code<input required placeholder="NS-7K4P-21" value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} /></label>}<label>Email<input required type="email" inputMode="email" autoComplete="email" placeholder="you@business.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label><label>Password<input required type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength="8" placeholder="8+ characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>{error && <p className="form-error">{error}</p>}{notice && <p className="form-success">{notice}</p>}<button className="primary-button modal-submit" disabled={submitting} type="submit">{submitting ? 'Working...' : mode === 'login' ? 'Sign in' : mode === 'join' ? 'Join partnership hub' : 'Create partnership hub'}</button></form><p className="modal-footnote"><ShieldCheck size={14} /> Encrypted sign-in for every partner.</p></>;
 }
 
 function AuthModal({ onClose, notify, onAuthenticated }) {
