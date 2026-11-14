@@ -4,6 +4,8 @@ import { clearSupabaseSession, currentProfile, setSupabaseSession } from '@/lib/
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '');
+const signUpOptions = siteUrl ? { options: { emailRedirectTo: `${siteUrl}/` } } : {};
 
 async function createProfile(user, name, organizationId, role = 'partner') {
   const { error } = await supabaseAdmin.from('ledgerly_profiles').insert({ id: user.id, organization_id: organizationId, name, role });
@@ -59,13 +61,13 @@ export async function POST(request) {
       if (organizationError) throw organizationError;
       createdOrganizationId = organization.id;
       organizationId = organization.id;
-      authResult = await supabase.auth.signUp({ email, password });
+      authResult = await supabase.auth.signUp({ email, password, ...signUpOptions });
     } else if (action === 'join') {
       if (!profileName || !inviteCode) return json({ error: 'Name and invite code are required.' }, 400);
       const { data: organization } = await supabaseAdmin.from('ledgerly_organizations').select('id').eq('invite_code', inviteCode).single();
       if (!organization) return json({ error: 'Invite code not found.' }, 404);
       organizationId = organization.id;
-      authResult = await supabase.auth.signUp({ email, password });
+      authResult = await supabase.auth.signUp({ email, password, ...signUpOptions });
     } else {
       authResult = await supabase.auth.signInWithPassword({ email, password });
     }
